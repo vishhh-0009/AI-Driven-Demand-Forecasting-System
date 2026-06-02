@@ -64,13 +64,6 @@ Demand prediction & demand trend graphs
 Actual vs predicted comparison graph
 Usefull insights
 
-Future Enhancements:
-Real-time data integration
-Advanced models (Transformer, Prophet)
-Multi-product forecasting
-Cloud deployment (AWS/GCP)
-Automated retraining
-
 Applications:
 Retail demand forecasting
 Inventory management
@@ -82,5 +75,11 @@ LSTM improves forecasting accuracy
 Handles seasonality and trend effectively
 Useful for real-world business decision-making
 
-Author
+Future Enhancements:
+Real-time data integration
+Advanced models (Transformer, Prophet)
+Multi-product forecasting
+Automated retraining
+
+-Author
 Vishakha Ahirwar

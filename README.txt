@@ -80,6 +80,8 @@ Real-time data integration
 Advanced models (Transformer, Prophet)
 Multi-product forecasting
 Automated retraining
+Deployment:Streamlit Cloud
+
 
 -Author
 Vishakha Ahirwar

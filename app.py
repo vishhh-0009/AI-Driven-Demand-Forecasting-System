@@ -2,12 +2,17 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
-
-# ---------------- MODEL ----------------
-model = load_model("lstm_model.h5")
+import pandas as pd
+import joblib
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="AI-Driven Demand Forecasting System", layout="wide")
+
+# ---------------- MODEL ----------------
+@st.cache_resource
+def get_model():
+    return load_model("lstm_model.h5")
+model = get_model()
 
 # ---------------- STYLE ----------------
 st.markdown("""
@@ -26,73 +31,103 @@ st.markdown("""
 st.markdown("<h1> AI-Driven Demand Forecasting Dashboard (LSTM)</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
-# ---------------- ENCODINGS ----------------
-region_map = {"North": 0, "South": 1, "East": 2, "West": 3}
-category_map = {"Electronics": 0, "Clothing": 1, "Grocery": 2}
-weather_map = {"Sunny": 0, "Rainy": 1, "Cloudy": 2}
-season_map = {"Holiday": 0, "Festive": 1}
+# ---------------- ENCODINGS (same as training notebook) ----------------
+FEATURES = [
+    "Store_ID", "Product_ID", "Category", "Region",
+    "Inventory_Level", "Units_Sold", "Units_Ordered", "Price",
+    "Discount", "Weather_Condition", "Promotion",
+    "Competitor_Pricing", "Seasonality", "Epidemic", "Time_Step",
+]
+
+store_map = {"S001": 0, "S002": 1, "S003": 2, "S004": 3, "S005": 4}
+product_map = {f"P{i:04d}": i - 1 for i in range(1, 21)}
+category_map = {"Clothing": 0, "Electronics": 1, "Furniture": 2, "Groceries": 3, "Toys": 4}
+region_map = {"East": 0, "North": 1, "South": 2, "West": 3}
+weather_map = {"Cloudy": 0, "Rainy": 1, "Snowy": 2, "Sunny": 3}
+season_map = {"Autumn": 0, "Spring": 1, "Summer": 2, "Winter": 3}
+
+
+@st.cache_resource
+def get_scaler():
+    return joblib.load("scaler.pkl")
+
+
+@st.cache_data
+def get_reference():
+    d = pd.read_csv("demand_forecasting.csv")
+    d.columns = d.columns.str.strip().str.replace(" ", "_")
+    num_cols = ["Inventory_Level", "Units_Sold", "Units_Ordered",
+                "Price", "Discount", "Competitor_Pricing"]
+    means = d[num_cols].mean().to_dict()
+    promo_vals = sorted(d["Promotion"].unique().tolist())
+    epidemic_vals = sorted(d["Epidemic"].unique().tolist())
+    return len(d), means, promo_vals, epidemic_vals
+
+
+scaler = get_scaler()
+n_rows, means, promo_vals, epidemic_vals = get_reference()
 
 # ---------------- SIDEBAR ----------------
-st.sidebar.header(" Input Features")
+st.sidebar.header("Input Features")
 
-store_id = st.sidebar.number_input("Store ID", min_value=0)
-product_id = st.sidebar.number_input("Product ID", min_value=0)
-
+store_id = st.sidebar.selectbox("Store ID", list(store_map.keys()))
+product_id = st.sidebar.selectbox("Product ID", list(product_map.keys()))
 category = st.sidebar.selectbox("Category", list(category_map.keys()))
 region = st.sidebar.selectbox("Region", list(region_map.keys()))
 weather = st.sidebar.selectbox("Weather", list(weather_map.keys()))
 seasonality = st.sidebar.selectbox("Seasonality", list(season_map.keys()))
 
-inventory = st.sidebar.number_input("Inventory Level")
-units_sold = st.sidebar.number_input("Units Sold")
-units_ordered = st.sidebar.number_input("Units Ordered")
-price = st.sidebar.number_input("Price")
-discount = st.sidebar.number_input("Discount")
-promotion = st.sidebar.number_input("Promotion")
-competitor = st.sidebar.number_input("Competitor")
-epidemic = st.sidebar.number_input("Epidemic")
-time_step = st.sidebar.number_input("Time Step", min_value=0)
+inventory = st.sidebar.number_input("Inventory Level", value=float(means["Inventory_Level"]))
+units_sold = st.sidebar.number_input("Units Sold", value=float(means["Units_Sold"]))
+units_ordered = st.sidebar.number_input("Units Ordered", value=float(means["Units_Ordered"]))
+price = st.sidebar.number_input("Price", value=float(means["Price"]))
+discount = st.sidebar.number_input("Discount", value=float(means["Discount"]))
+promotion = st.sidebar.selectbox("Promotion", promo_vals)
+competitor = st.sidebar.number_input("Competitor Pricing", value=float(means["Competitor_Pricing"]))
+epidemic = st.sidebar.selectbox("Epidemic", epidemic_vals)
+time_step = st.sidebar.number_input("Time Step", min_value=0, max_value=n_rows - 1, value=n_rows - 1, step=1)
 
 # ---------------- PREDICTION ----------------
-prediction = None
+if st.button("Predict Demand"):
 
-if st.button(" Predict Demand"):
+    row = pd.DataFrame([{
+        "Store_ID": store_map[store_id],
+        "Product_ID": product_map[product_id],
+        "Category": category_map[category],
+        "Region": region_map[region],
+        "Inventory_Level": inventory,
+        "Units_Sold": units_sold,
+        "Units_Ordered": units_ordered,
+        "Price": price,
+        "Discount": discount,
+        "Weather_Condition": weather_map[weather],
+        "Promotion": promotion,
+        "Competitor_Pricing": competitor,
+        "Seasonality": season_map[seasonality],
+        "Epidemic": epidemic,
+        "Time_Step": time_step,
+    }])[FEATURES]
 
-    # encode
-    category = category_map[category]
-    region = region_map[region]
-    weather = weather_map[weather]
-    seasonality = season_map[seasonality]
+    # same scaling as training
+    scaled_row = scaler.transform(row)
 
-    # input vector
-    input_row = np.array([
-        store_id, product_id,
-        category, region,
-        weather, seasonality,
-        inventory, units_sold, units_ordered,
-        price, discount, promotion,
-        competitor, epidemic,
-        time_step
-    ])
+    # LSTM shape: (1, 10, 15)
+    input_seq = np.tile(scaled_row, (10, 1)).reshape(1, 10, 15)
 
-    # LSTM shape
-    input_seq = np.tile(input_row, (10, 1))
-    input_seq = input_seq.reshape(1, 10, 15)
-
-    prediction = model.predict(input_seq)[0][0]
+    prediction = float(model.predict(input_seq, verbose=0)[0][0])
+    prediction = max(prediction, 0.0)  # demand can't be negative
 
     # ---------------- METRICS ----------------
     col1, col2, col3 = st.columns(3)
-
-    col1.metric(" Predicted Demand", f"{prediction:.2f}")
-    col2.metric(" Units Sold", f"{units_sold}")
-    col3.metric(" Inventory", f"{inventory}")
+    col1.metric("Predicted Demand", f"{prediction:.2f}")
+    col2.metric("Units Sold", f"{units_sold}")
+    col3.metric("Inventory", f"{inventory}")
 
     st.success("Prediction Completed Successfully!")
 
     # store for graph use
     st.session_state["prediction"] = prediction
-
+    
 # ---------------- GRAPHS ----------------
 st.markdown("---")
 st.subheader(" Analytics Dashboard")
